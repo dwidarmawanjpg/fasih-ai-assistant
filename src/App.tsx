@@ -1,6 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
-import { supabase } from './supabaseClient';
-import './index.css';
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "./supabaseClient";
+import {
+  List,
+  Moon,
+  Sun,
+  Brain,
+  Microphone,
+  ClipboardText,
+  Lightbulb,
+  Plus,
+  X,
+  ArrowUp,
+  Lightning,
+} from "@phosphor-icons/react";
+import "./index.css";
 
 interface AIRule {
   id: number;
@@ -8,117 +21,179 @@ interface AIRule {
 }
 
 interface ParsedData {
-  category: 'Kepala Keluarga' | 'ART Lainnya' | 'Aset' | 'Pengeluaran' | 'Usaha';
+  category:
+    | "Kepala Keluarga"
+    | "ART Lainnya"
+    | "Aset"
+    | "Pengeluaran"
+    | "Usaha";
   subCategory?: string;
   field: string;
   value: string | number;
-  status: 'Dari Catatan' | 'Asumsi AI';
+  status: "Dari Catatan" | "Asumsi AI";
   reason?: string;
+}
+
+interface ChatInteraction {
+  id: string;
+  rawText: string;
+  parsedResults: ParsedData[];
+  aiResponseText?: string;
 }
 
 interface ChatSession {
   id: string;
   title: string;
   timestamp: number;
-  rawText: string;
-  parsedResults: ParsedData[];
+  interactions: ChatInteraction[];
 }
 
 const API_KEY = "sk-f7d03a3d9ee3bef1-1szt5n-dd7079c6";
 
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const saved = localStorage.getItem('fasih_sessions');
-    return saved ? JSON.parse(saved) : [];
+    const saved = localStorage.getItem("fasih_sessions");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((s: Record<string, unknown>) => {
+          if (s.interactions) return s;
+          return {
+            id: s.id,
+            title: s.title,
+            timestamp: s.timestamp,
+            interactions: [
+              {
+                id: s.id,
+                rawText: s.rawText || "",
+                parsedResults: s.parsedResults || [],
+                aiResponseText: s.aiResponseText || "",
+              },
+            ],
+          };
+        });
+      } catch {
+        return [];
+      }
+    }
+    return [];
   });
-  
+
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState("");
   const [isListening, setIsListening] = useState(false);
-  
+
   // AI Memory States
   const [aiRules, setAiRules] = useState<AIRule[]>([]);
   const [showRuleModal, setShowRuleModal] = useState(false);
-  const [newRuleText, setNewRuleText] = useState('');
+  const [newRuleText, setNewRuleText] = useState("");
   const [isSavingRule, setIsSavingRule] = useState(false);
-  
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return (localStorage.getItem('fasih_theme') as 'light' | 'dark') || 'light';
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    return (localStorage.getItem("fasih_theme") as "light" | "dark") || "light";
   });
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resultsEndRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
-    document.body.setAttribute('data-theme', theme);
-    localStorage.setItem('fasih_theme', theme);
+    document.body.setAttribute("data-theme", theme);
+    localStorage.setItem("fasih_theme", theme);
   }, [theme]);
 
   useEffect(() => {
-    fetchRules();
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("ai_memory")
+          .select("*")
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        if (data) setAiRules(data);
+      } catch (err) {
+        console.error("Error fetching AI rules:", err);
+      }
+    })();
   }, []);
-
-  const fetchRules = async () => {
-    try {
-      const { data, error } = await supabase.from('ai_memory').select('*').order('created_at', { ascending: true });
-      if (error) throw error;
-      if (data) setAiRules(data);
-    } catch (err) {
-      console.error('Error fetching AI rules:', err);
-    }
-  };
 
   const saveRule = async () => {
     if (!newRuleText.trim()) return;
     setIsSavingRule(true);
     try {
-      const { data, error } = await supabase.from('ai_memory').insert([{ content: newRuleText }]).select();
+      const { data, error } = await supabase
+        .from("ai_memory")
+        .insert([{ content: newRuleText }])
+        .select();
       if (error) throw error;
-      if (data) setAiRules(prev => [...prev, data[0]]);
-      setNewRuleText('');
+      if (data) setAiRules((prev) => [...prev, data[0]]);
+      setNewRuleText("");
       setShowRuleModal(false);
     } catch (err) {
-      console.error('Error saving rule:', err);
-      alert('Gagal menyimpan aturan ke database.');
+      console.error("Error saving rule:", err);
+      alert("Gagal menyimpan aturan ke database.");
     } finally {
       setIsSavingRule(false);
     }
   };
 
   useEffect(() => {
-    localStorage.setItem('fasih_sessions', JSON.stringify(sessions));
+    localStorage.setItem("fasih_sessions", JSON.stringify(sessions));
   }, [sessions]);
 
   // Hapus useEffect yang agresif auto-select session pertama saat null
 
-  const activeSession = sessions.find(s => s.id === activeSessionId);
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   const adjustTextareaHeight = () => {
     const el = textareaRef.current;
     if (el) {
-      el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 200) + "px";
     }
   };
 
   const createNewSession = () => {
     setActiveSessionId(null);
-    setInputText('');
-    setErrorMsg('');
+    setInputText("");
+    setErrorMsg("");
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = "auto";
     }
   };
 
   const toggleListening = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
+    interface ISpeechRecognition {
+      lang: string;
+      continuous: boolean;
+      interimResults: boolean;
+      onstart: (() => void) | null;
+      onresult: ((event: SpeechRecognitionEvent) => void) | null;
+      onend: (() => void) | null;
+      onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+      start(): void;
+      stop(): void;
+    }
+    interface ISpeechRecognitionConstructor {
+      new (): ISpeechRecognition;
+    }
+    interface WindowWithSpeech {
+      SpeechRecognition?: ISpeechRecognitionConstructor;
+      webkitSpeechRecognition?: ISpeechRecognitionConstructor;
+    }
+    const win = window as WindowWithSpeech;
+    const SpeechRecognitionAPI =
+      win.SpeechRecognition || win.webkitSpeechRecognition;
+    const SpeechRecognition = SpeechRecognitionAPI;
+
     if (!SpeechRecognition) {
-      alert("Browser Anda tidak mendukung fitur Suara ke Teks. Coba gunakan Google Chrome.");
+      alert(
+        "Browser Anda tidak mendukung fitur Suara ke Teks. Coba gunakan Google Chrome.",
+      );
       return;
     }
 
@@ -132,7 +207,7 @@ function App() {
 
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
-    recognition.lang = 'id-ID';
+    recognition.lang = "id-ID";
     recognition.continuous = true;
     recognition.interimResults = true;
 
@@ -143,12 +218,16 @@ function App() {
       startText = inputText;
     };
 
-    recognition.onresult = (event: any) => {
-      let currentTranscript = '';
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let currentTranscript = "";
       for (let i = 0; i < event.results.length; ++i) {
         currentTranscript += event.results[i][0].transcript;
       }
-      setInputText(startText + (startText && currentTranscript ? ' ' : '') + currentTranscript);
+      setInputText(
+        startText +
+          (startText && currentTranscript ? " " : "") +
+          currentTranscript,
+      );
       setTimeout(adjustTextareaHeight, 0);
     };
 
@@ -156,8 +235,8 @@ function App() {
       setIsListening(false);
     };
 
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error', event.error);
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error("Speech recognition error", event.error);
       setIsListening(false);
     };
 
@@ -171,18 +250,18 @@ function App() {
 
   const processText = async () => {
     if (!inputText.trim()) return;
-    
+
     setIsProcessing(true);
-    setErrorMsg('');
-    setActiveSessionId(null); // Pindah ke layar kosong/loading
-    
+    setErrorMsg("");
+    const targetSessionId = activeSessionId;
+
     const currentInput = inputText;
-    setInputText('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    
+    setInputText("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+
     try {
-      const prompt = `
-Kamu adalah asisten ahli pengolah data untuk survei FASIH BPS. 
+      const systemPrompt = `
+Kamu adalah asisten ahli pengolah data untuk survei FASIH BPS.
 Tugasmu mengekstrak informasi dari catatan wawancara lapangan ke JSON.
 
 ATURAN UTAMA:
@@ -213,7 +292,7 @@ ATURAN UTAMA:
    - JML_MOTOR (Jumlah Kendaraan Motor)
    - JML_MOBIL (Jumlah Kendaraan Mobil)
    - JML_GAS (Jumlah Tabung Gas per bulan)
-   
+
    2. LOGIKA PERHITUNGAN BULANAN (IF - MAKA)
    A. Biaya dari data memang bawaan hasil wawancara, ditambahkan saja ke pengeluaran bulannya(Base Cost)
       IF Rumah tangga aktif/terdata, (Mencakup: Listrik dasar dan internet rumahl).
@@ -241,7 +320,7 @@ ATURAN UTAMA:
       MAKA Biaya_Gas_Bulanan = JML_GAS * Rp 22.000
       ELSE,
       MAKA Biaya_Gas_Bulanan = 0
-      
+
    3. LOGIKA PERHITUNGAN TAHUNAN (IF - MAKA)
    A. Biaya Tetap Rumah Tangga (Base Cost)
       IF Rumah tangga aktif/terdata,
@@ -267,7 +346,7 @@ ATURAN UTAMA:
       (Akumulasi Pajak Samsat Rp 1.500.000 + Servis & Oli Setahun Rp 1.500.000)
       ELSE,
       MAKA Perawatan_Mobil_Tahunan = 0.
-      
+
    BERDASARKAN LOGIKA DI ATAS, khusus untuk KATEGORI "Pengeluaran", CUKUP BERIKAN OUTPUT BERIKUT SEBAGAI HASIL AKHIR (Gabungkan rincian di atas):
    1. "Biaya Listrik Bulanan" (Sesuai catatan atau Asumsi AI)
    2. "Biaya Internet Bulanan" (Sesuai catatan atau Asumsi AI)
@@ -276,7 +355,7 @@ ATURAN UTAMA:
       (Selalu keluarkan KEDUA versi makanan ini).
    5. "Non Makanan Bulanan Total": Total dari seluruh hitungan "2. LOGIKA PERHITUNGAN BULANAN" saja (Air/Sabun, Pulsa, BPJS, Kebutuhan Harian, Kesehatan Rutin, Bensin, Gas).
    6. "Non Makanan Tahunan Total": Total dari seluruh hitungan "3. LOGIKA PERHITUNGAN TAHUNAN" murni (Biaya Tetap, Grooming, Hari Raya, Pendidikan, Kesehatan Tahunan, Perawatan Kendaraan).
-   
+
    PENTING: Pengeluaran tahunan HANYA berisi hasil perhitungan dari Logika Tahunan saja. JANGAN menambahkan/mengalikan pengeluaran bulanan ke dalamnya! Masukkan ke-6 hasil akhir ini saja ke dalam array JSON dengan "category": "Pengeluaran".
 
 Keluarkan HANYA array JSON tanpa format markdown:
@@ -290,91 +369,170 @@ Keluarkan HANYA array JSON tanpa format markdown:
   }
 ]
 
-Teks wawancara:
-"""
-${currentInput}
-"""
-
-${aiRules.length > 0 ? `ATURAN TAMBAHAN DARI PENGALAMAN (SANGAT PENTING - OVERRIDE ATURAN LAMA JIKA BENTROK):
-${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
-` : ''}
+${
+  aiRules.length > 0
+    ? `ATURAN TAMBAHAN DARI PENGALAMAN (SANGAT PENTING - OVERRIDE ATURAN LAMA JIKA BENTROK):
+${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join("\n")}
+`
+    : ""
+}
 `;
 
-      const response = await fetch("https://dwidarmawanjpg-9router.hf.space/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${API_KEY}`
+      const response = await fetch(
+        "https://dwidarmawanjpg-9router.hf.space/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "combotry",
+            messages: (function () {
+              const msgs = [{ role: "system", content: systemPrompt }];
+              const targetSession = sessions.find(
+                (s) => s.id === targetSessionId,
+              );
+              if (targetSession) {
+                for (const ix of targetSession.interactions) {
+                  msgs.push({
+                    role: "user",
+                    content: 'Teks wawancara:\n"""\n' + ix.rawText + '\n"""',
+                  });
+                  const asstContent =
+                    (ix.parsedResults.length > 0
+                      ? JSON.stringify(ix.parsedResults)
+                      : "") +
+                    (ix.aiResponseText ? "\n\n" + ix.aiResponseText : "");
+                  msgs.push({
+                    role: "assistant",
+                    content: asstContent.trim() || "{}",
+                  });
+                }
+              }
+              msgs.push({
+                role: "user",
+                content: 'Teks wawancara:\n"""\n' + currentInput + '\n"""',
+              });
+              return msgs;
+            })(),
+            temperature: 0.3,
+            stream: false,
+          }),
         },
-        body: JSON.stringify({
-          model: "combotry",
-          messages: [
-            { role: "user", content: prompt }
-          ],
-          temperature: 0.3,
-          stream: false
-        })
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP Error: ${response.status}`);
       }
 
       const rawTextResponse = await response.text();
-      let text = '';
+      let text = "";
 
-      if (rawTextResponse.includes('data: {')) {
-        const lines = rawTextResponse.split('\n');
+      if (rawTextResponse.includes("data: {")) {
+        const lines = rawTextResponse.split("\n");
         for (const line of lines) {
-          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+          if (line.startsWith("data: ") && line !== "data: [DONE]") {
             try {
-              const data = JSON.parse(line.replace('data: ', ''));
+              const data = JSON.parse(line.replace("data: ", ""));
               if (data.choices?.[0]?.delta?.content) {
                 text += data.choices[0].delta.content;
               } else if (data.choices?.[0]?.message?.content) {
-                 text = data.choices[0].message.content;
+                text = data.choices[0].message.content;
               }
-            } catch (e) {}
+            } catch {
+              /* ignore JSON parse errors for SSE lines */
+            }
           }
         }
       } else {
         try {
           const result = JSON.parse(rawTextResponse);
           text = result.choices[0].message.content;
-        } catch (e) {
+        } catch {
           text = rawTextResponse;
         }
       }
-      
+
       text = text.trim();
-      
-      if (text.startsWith('\`\`\`json')) {
-        text = text.replace(/^\`\`\`json\s*/, '').replace(/\s*\`\`\`$/, '');
-      } else if (text.startsWith('\`\`\`')) {
-        text = text.replace(/^\`\`\`\s*/, '').replace(/\s*\`\`\`$/, '');
+
+      let parsedJson: ParsedData[] = [];
+      let finalAiResponseText = "";
+
+      let textToParse = text;
+      if (textToParse.startsWith("```json")) {
+        textToParse = textToParse
+          .replace(/^```json\s*/, "")
+          .replace(/\s*```$/, "");
+      } else if (textToParse.startsWith("```")) {
+        textToParse = textToParse.replace(/^```\s*/, "").replace(/\s*```$/, "");
       }
 
-      const parsedJson = JSON.parse(text) as ParsedData[];
-      
-      const newSession: ChatSession = {
+      try {
+        parsedJson = JSON.parse(textToParse) as ParsedData[];
+      } catch {
+        try {
+          const match = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+          if (match) {
+            parsedJson = JSON.parse(match[0]) as ParsedData[];
+            finalAiResponseText = text
+              .replace(match[0], "")
+              .replace(/```json/gi, "")
+              .replace(/```/g, "")
+              .trim();
+          } else {
+            finalAiResponseText = text;
+          }
+        } catch {
+          finalAiResponseText = text;
+        }
+      }
+
+      if (parsedJson.length === 0 && !finalAiResponseText) {
+        finalAiResponseText = text;
+      }
+
+      const newInteraction: ChatInteraction = {
         id: Date.now().toString(),
-        title: currentInput.slice(0, 30) + (currentInput.length > 30 ? '...' : ''),
-        timestamp: Date.now(),
         rawText: currentInput,
-        parsedResults: parsedJson
+        parsedResults: parsedJson,
+        aiResponseText: finalAiResponseText,
       };
 
-      setSessions(prev => [newSession, ...prev]);
-      setActiveSessionId(newSession.id);
+      if (targetSessionId) {
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id === targetSessionId) {
+              return {
+                ...s,
+                interactions: [...s.interactions, newInteraction],
+              };
+            }
+            return s;
+          }),
+        );
+      } else {
+        const newSession: ChatSession = {
+          id: Date.now().toString(),
+          title:
+            currentInput.slice(0, 30) + (currentInput.length > 30 ? "..." : ""),
+          timestamp: Date.now(),
+          interactions: [newInteraction],
+        };
+        setSessions((prev) => [newSession, ...prev]);
+        setActiveSessionId(newSession.id);
+      }
 
       setTimeout(() => {
-        resultsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        resultsEndRef.current?.scrollIntoView({ behavior: "smooth" });
       }, 100);
-
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setErrorMsg('Gagal memproses. Coba lagi. ' + err.message);
-      setInputText(currentInput); 
+      setErrorMsg(
+        "Gagal memproses. Coba lagi. " +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      setInputText(currentInput);
     } finally {
       setIsProcessing(false);
     }
@@ -382,7 +540,7 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
 
   const deleteSession = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newSessions = sessions.filter(s => s.id !== id);
+    const newSessions = sessions.filter((s) => s.id !== id);
     setSessions(newSessions);
     if (activeSessionId === id) {
       setActiveSessionId(newSessions.length > 0 ? newSessions[0].id : null);
@@ -391,67 +549,115 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
 
   const isCurrency = (field: string) => {
     const lower = field.toLowerCase();
-    return lower.includes('gaji') || lower.includes('biaya') || lower.includes('pengeluaran') 
-      || lower.includes('harga') || lower.includes('pendapatan') || lower.includes('tagihan')
-      || lower.includes('nominal') || lower.includes('nilai') || lower.includes('omzet');
+    return (
+      lower.includes("gaji") ||
+      lower.includes("biaya") ||
+      lower.includes("pengeluaran") ||
+      lower.includes("harga") ||
+      lower.includes("pendapatan") ||
+      lower.includes("tagihan") ||
+      lower.includes("nominal") ||
+      lower.includes("nilai") ||
+      lower.includes("omzet")
+    );
   };
 
   const formatValue = (item: ParsedData) => {
-    if (typeof item.value === 'number') {
+    if (typeof item.value === "number") {
       if (isCurrency(item.field)) {
-        return `Rp ${item.value.toLocaleString('id-ID')}`;
+        return `Rp ${item.value.toLocaleString("id-ID")}`;
       }
-      return item.value.toLocaleString('id-ID');
+      return item.value.toLocaleString("id-ID");
     }
     return item.value;
   };
 
-  const groupedResults = activeSession?.parsedResults.reduce((acc, curr) => {
-    if (!acc[curr.category]) acc[curr.category] = [];
-    acc[curr.category].push(curr);
-    return acc;
-  }, {} as Record<string, ParsedData[]>) || {};
-
-  const categoryOrder = ['Kepala Keluarga', 'ART Lainnya', 'Usaha', 'Aset', 'Pengeluaran'];
+  const categoryOrder = [
+    "Kepala Keluarga",
+    "ART Lainnya",
+    "Usaha",
+    "Aset",
+    "Pengeluaran",
+  ];
 
   return (
     <div className="layout-container">
       {/* Mobile Overlay */}
-      <div 
-        className={`mobile-overlay ${isSidebarOpen ? 'open' : ''}`} 
-        onClick={() => setIsSidebarOpen(false)} 
-        aria-hidden="true" 
+      <div
+        className={`mobile-overlay ${isSidebarOpen ? "open" : ""}`}
+        onClick={() => setIsSidebarOpen(false)}
+        aria-hidden="true"
       />
-      
+
       {/* Sidebar History */}
-      <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`} aria-label="Riwayat Obrolan">
-        <button className="new-chat-btn" onClick={() => { createNewSession(); setIsSidebarOpen(false); }} aria-label="Buat ekstraksi baru">
-          <span aria-hidden="true">+</span> Ekstraksi Baru
+      <aside
+        className={`sidebar ${isSidebarOpen ? "open" : ""}`}
+        aria-label="Riwayat Obrolan"
+      >
+        {/* Brand strip */}
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-mark" aria-hidden="true">
+            <Lightning size={16} weight="fill" />
+          </div>
+          <div>
+            <div className="sidebar-logo-name">FASIH</div>
+            <span className="sidebar-logo-sub">AI Assistant</span>
+          </div>
+        </div>
+
+        {/* Primary action */}
+        <button
+          className="btn-new-extraction"
+          onClick={() => {
+            createNewSession();
+            setIsSidebarOpen(false);
+          }}
+          aria-label="Buat ekstraksi baru"
+        >
+          <Plus size={16} weight="bold" /> Ekstraksi Baru
         </button>
 
-        <button 
-          className="new-chat-btn" 
-          onClick={() => { setShowRuleModal(true); setIsSidebarOpen(false); }} 
+        {/* Secondary action */}
+        <button
+          className="btn-ai-memory"
+          onClick={() => {
+            setShowRuleModal(true);
+            setIsSidebarOpen(false);
+          }}
           aria-label="Ajari AI"
-          style={{ backgroundColor: 'var(--accent)', marginTop: '-1rem' }}
         >
-          <span aria-hidden="true">🧠</span> Ajari AI ({aiRules.length})
+          <Brain size={16} /> Ajari AI
+          <span className="rule-count">{aiRules.length}</span>
         </button>
-        
+
+        <div className="sidebar-section-label">Riwayat</div>
+
         <div className="history-list modern-scrollbar">
-          {sessions.map(session => (
-            <div 
-              key={session.id} 
-              className={`history-item ${activeSessionId === session.id ? 'active' : ''}`}
-              onClick={() => { setActiveSessionId(session.id); setIsSidebarOpen(false); }}
+          {sessions.map((session) => (
+            <div
+              key={session.id}
+              className={`history-item ${activeSessionId === session.id ? "active" : ""}`}
+              onClick={() => {
+                setActiveSessionId(session.id);
+                setIsSidebarOpen(false);
+              }}
             >
               <div className="history-text">
                 <div className="history-title">{session.title}</div>
                 <div className="history-date">
-                  {new Date(session.timestamp).toLocaleDateString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(session.timestamp).toLocaleDateString("id-ID", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </div>
               </div>
-              <button className="delete-btn" onClick={(e) => deleteSession(session.id, e)}>✕</button>
+              <button
+                className="delete-btn"
+                onClick={(e) => deleteSession(session.id, e)}
+                aria-label="Hapus sesi"
+              >
+                <X size={13} weight="bold" />
+              </button>
             </div>
           ))}
           {sessions.length === 0 && (
@@ -463,89 +669,178 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
       {/* Main Content Area */}
       <main className="main-content">
         <div className="top-bar">
-          <button 
-            className="menu-btn" 
+          <button
+            className="menu-btn"
             onClick={() => setIsSidebarOpen(true)}
             aria-label="Buka Menu"
           >
-            ☰
+            <List size={18} />
           </button>
-          
-          <div style={{ flexGrow: 1 }} />
-          
-          <button 
+
+          <div className="top-bar-center">
+            <span className="top-bar-brand">FASIH</span>
+            {activeSession && (
+              <>
+                <span className="top-bar-sep" aria-hidden="true" />
+                <span className="top-bar-session">{activeSession.title}</span>
+              </>
+            )}
+          </div>
+
+          <button
             className="theme-btn"
-            onClick={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
+            onClick={() =>
+              setTheme((prev) => (prev === "light" ? "dark" : "light"))
+            }
             aria-label="Ganti Tema"
           >
-            {theme === 'light' ? '🌙' : '☀️'}
+            {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
           </button>
         </div>
 
         <div className="results-scroll-area modern-scrollbar">
           {activeSession ? (
             <div className="session-view">
-              <div className="user-message-bubble">
-                <div className="bubble-label">Catatan Lapangan:</div>
-                <div className="bubble-text">{activeSession.rawText}</div>
-              </div>
-              
-              <div className="ai-response-container">
-                <div className="bubble-label">Hasil Ekstraksi Combotry:</div>
-                <button 
-                  className="copy-btn"
-                  onClick={() => {
-                    const text = activeSession.parsedResults.map(r => `${r.category} | ${r.field}: ${r.value}`).join('\n');
-                    navigator.clipboard.writeText(text);
-                    alert('Berhasil disalin!');
-                  }}
-                >
-                  📋 Salin Text
-                </button>
+              {activeSession.interactions.map((ix) => {
+                const groupedResults =
+                  ix.parsedResults.reduce(
+                    (acc, curr) => {
+                      if (!acc[curr.category]) acc[curr.category] = [];
+                      acc[curr.category].push(curr);
+                      return acc;
+                    },
+                    {} as Record<string, ParsedData[]>,
+                  ) || {};
 
-                <div className="wide-results-grid">
-                  {categoryOrder.map(cat => {
-                    const items = groupedResults[cat] || groupedResults[cat.toUpperCase()] || [];
-                    if (items.length === 0) return null;
-                    
-                    return (
-                      <div key={cat} className="wide-category-section">
-                        <h3 className="category-title">{cat}</h3>
-                        {(() => {
-                          const subCats = Array.from(new Set(items.map(i => i.subCategory || '')));
-                          
-                          return subCats.map((sub, idx) => {
-                            const subItems = items.filter(i => (i.subCategory || '') === sub);
-                            return (
-                              <div key={idx} className="subcategory-group" style={{ marginBottom: sub ? '1.5rem' : '0' }}>
-                                {sub && <h4 className="subcategory-title" style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '0.75rem', borderBottom: '1px dashed var(--border-light)', paddingBottom: '0.25rem', display: 'inline-block' }}>{sub}</h4>}
-                                <div className="horizontal-grid">
-                                  {subItems.map((res, i) => (
-                                    <div key={i} className="data-card">
-                                      <div className="data-card-header">
-                                        <span className="data-field">{res.field}</span>
-                                        <span className={`status-dot ${res.status === 'Asumsi AI' ? 'dot-asumsi' : 'dot-real'}`} title={res.status}></span>
-                                      </div>
-                                      <div className={`data-value ${isCurrency(res.field) || String(res.value).includes('Rp') ? 'is-currency' : ''}`}>
-                                        {formatValue(res)}
-                                      </div>
-                                      {res.reason && (
-                                        <div className="data-reason">
-                                          <span className="reason-icon">💡</span> {res.reason}
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          });
-                        })()}
+                return (
+                  <div key={ix.id} className="interaction-wrapper">
+                    <div className="user-message-bubble">
+                      <div className="bubble-label">Catatan Lapangan</div>
+                      <div className="bubble-text">{ix.rawText}</div>
+                    </div>
+
+                    <div className="ai-response-container">
+                      <div className="ai-response-header">
+                        <div className="bubble-label">Hasil Ekstraksi</div>
+                        <button
+                          className="copy-btn"
+                          onClick={() => {
+                            const text = ix.parsedResults
+                              .map(
+                                (r) => `${r.category} | ${r.field}: ${r.value}`,
+                              )
+                              .join("\n");
+                            navigator.clipboard.writeText(text);
+                            alert("Berhasil disalin!");
+                          }}
+                        >
+                          <ClipboardText size={13} /> Salin
+                        </button>
                       </div>
-                    );
-                  })}
+
+                      <div className="wide-results-grid">
+                        {categoryOrder.map((cat) => {
+                          const items =
+                            groupedResults[cat] ||
+                            groupedResults[cat.toUpperCase()] ||
+                            [];
+                          if (items.length === 0) return null;
+
+                          return (
+                            <div key={cat} className="wide-category-section">
+                              <h3 className="category-title">{cat}</h3>
+                              {(() => {
+                                const subCats = Array.from(
+                                  new Set(
+                                    items.map((i) => i.subCategory || ""),
+                                  ),
+                                );
+
+                                return subCats.map((sub, subIdx) => {
+                                  const subItems = items.filter(
+                                    (i) => (i.subCategory || "") === sub,
+                                  );
+                                  return (
+                                    <div
+                                      key={subIdx}
+                                      className="subcategory-group"
+                                    >
+                                      {sub && (
+                                        <h4 className="subcategory-title">
+                                          {sub}
+                                        </h4>
+                                      )}
+                                      <div className="horizontal-grid">
+                                        {subItems.map((res, i) => (
+                                          <div key={i} className="data-card">
+                                            <div className="data-card-header">
+                                              <span className="data-field">
+                                                {res.field}
+                                              </span>
+                                              <span
+                                                className={`status-dot ${res.status === "Asumsi AI" ? "dot-asumsi" : "dot-real"}`}
+                                                title={res.status}
+                                              ></span>
+                                            </div>
+                                            <div
+                                              className={`data-value ${isCurrency(res.field) || String(res.value).includes("Rp") ? "is-currency" : ""}`}
+                                            >
+                                              {formatValue(res)}
+                                            </div>
+                                            {res.reason && (
+                                              <div className="data-reason">
+                                                <span className="reason-icon">
+                                                  <Lightbulb
+                                                    size={11}
+                                                    weight="fill"
+                                                  />
+                                                </span>{" "}
+                                                {res.reason}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {ix.aiResponseText && (
+                        <div className="plain-text-response">
+                          <div className="bubble-label">
+                            Pesan / Jawaban Teks
+                          </div>
+                          <div className="plain-text-body">
+                            {ix.aiResponseText}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {isProcessing && activeSessionId === activeSession.id && (
+                <div
+                  className="loading-container"
+                  style={{ marginTop: "2rem" }}
+                >
+                  <div className="skeleton-bubble user"></div>
+                  <div className="skeleton-bubble ai">
+                    <div className="skeleton-pulse-text"></div>
+                    <div className="skeleton-grid">
+                      <div className="skeleton-card"></div>
+                      <div className="skeleton-card"></div>
+                      <div className="skeleton-card"></div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ) : isProcessing ? (
             <div className="loading-container">
@@ -561,8 +856,30 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
             </div>
           ) : (
             <div className="welcome-screen">
+              <div className="welcome-mark" aria-hidden="true">
+                <Lightning size={26} weight="fill" />
+              </div>
               <h1>FASIH AI Assistant</h1>
-              <p>Masukkan catatan wawancaramu di bawah untuk mengekstrak data menjadi JSON.</p>
+              <p>
+                Masukkan catatan wawancara di bawah untuk mengekstrak data ke
+                format terstruktur.
+              </p>
+              <div
+                className="welcome-categories"
+                aria-label="Kategori data yang diekstrak"
+              >
+                {[
+                  "Kepala Keluarga",
+                  "ART Lainnya",
+                  "Usaha",
+                  "Aset",
+                  "Pengeluaran",
+                ].map((c) => (
+                  <span key={c} className="welcome-cat-pill">
+                    {c}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
           <div ref={resultsEndRef} />
@@ -583,7 +900,7 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
                 adjustTextareaHeight();
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   processText();
                 }
@@ -591,26 +908,33 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
               rows={1}
             />
             <button
-              className={`mic-btn ${isListening ? 'listening' : ''}`}
+              className={`mic-btn ${isListening ? "listening" : ""}`}
               onClick={toggleListening}
               disabled={isProcessing}
               aria-label="Voice to Text"
               title="Gunakan Suara"
             >
-              🎤
+              <Microphone size={16} weight={isListening ? "fill" : "regular"} />
             </button>
-            <button 
-              className="send-btn" 
+            <button
+              className="send-btn"
               onClick={processText}
               disabled={!inputText.trim() || isProcessing}
-              aria-label={isProcessing ? "Sedang memproses..." : "Kirim catatan"}
+              aria-label={
+                isProcessing ? "Sedang memproses..." : "Kirim catatan"
+              }
               title="Kirim (Enter)"
             >
-              {isProcessing ? <div className="spinner-small" aria-hidden="true" /> : '↑'}
+              {isProcessing ? (
+                <div className="spinner-small" aria-hidden="true" />
+              ) : (
+                <ArrowUp size={16} weight="bold" />
+              )}
             </button>
           </div>
           <div className="input-footer">
-            Tekan <b>Enter</b> untuk mengirim, <b>Shift+Enter</b> untuk baris baru
+            Tekan <b>Enter</b> untuk mengirim, <b>Shift+Enter</b> untuk baris
+            baru
           </div>
         </div>
       </main>
@@ -619,28 +943,53 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join('\n')}
       {showRuleModal && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h2>🧠 Memori AI (Knowledge Base)</h2>
-            <p className="modal-desc">Aturan di bawah ini akan selalu diingat AI di setiap sesi baru.</p>
-            
-            <ul className="rules-list modern-scrollbar">
-              {aiRules.length === 0 && <li className="empty-rules">Belum ada ingatan.</li>}
-              {aiRules.map(rule => (
-                <li key={rule.id}>• {rule.content}</li>
-              ))}
-            </ul>
+            {/* Header */}
+            <div className="modal-header">
+              <div className="modal-icon" aria-hidden="true">
+                <Brain size={20} weight="fill" />
+              </div>
+              <div className="modal-header-text">
+                <h2>Memori AI</h2>
+                <p className="modal-desc">
+                  Aturan ini diingat AI di setiap sesi baru.
+                </p>
+              </div>
+            </div>
 
-            <textarea 
-              className="chat-textarea rule-textarea modern-scrollbar"
-              placeholder="Contoh: Jika status janda cerai, kodenya X."
-              value={newRuleText}
-              onChange={e => setNewRuleText(e.target.value)}
-              rows={3}
-            />
-            
-            <div className="modal-actions">
-              <button className="btn-cancel" onClick={() => setShowRuleModal(false)}>Batal</button>
-              <button className="btn-save" onClick={saveRule} disabled={isSavingRule || !newRuleText.trim()}>
-                {isSavingRule ? 'Menyimpan...' : 'Simpan ke Otak AI'}
+            {/* Body */}
+            <div className="modal-body">
+              <ul className="rules-list modern-scrollbar">
+                {aiRules.length === 0 && (
+                  <li className="empty-rules">Belum ada ingatan.</li>
+                )}
+                {aiRules.map((rule) => (
+                  <li key={rule.id}>{rule.content}</li>
+                ))}
+              </ul>
+
+              <textarea
+                className="rule-textarea modern-scrollbar"
+                placeholder="Contoh: Jika status janda cerai, kodenya X."
+                value={newRuleText}
+                onChange={(e) => setNewRuleText(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="modal-footer">
+              <button
+                className="btn-cancel"
+                onClick={() => setShowRuleModal(false)}
+              >
+                Batal
+              </button>
+              <button
+                className="btn-save"
+                onClick={saveRule}
+                disabled={isSavingRule || !newRuleText.trim()}
+              >
+                {isSavingRule ? "Menyimpan..." : "Simpan ke Memori AI"}
               </button>
             </div>
           </div>
