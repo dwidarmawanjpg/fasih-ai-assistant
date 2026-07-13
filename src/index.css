@@ -1215,3 +1215,127 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ─── BUDGET WARNING BANNER ──────────────────────────────── */
+.budget-warning-banner {
+  margin-bottom: 1rem;
+  border-radius: var(--radius-lg);
+  border: 1.5px solid rgba(245, 158, 11, 0.45);
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.08) 0%,
+    rgba(239, 68, 68, 0.06) 100%
+  );
+  overflow: hidden;
+  animation: scaleIn 0.2s ease;
+}
+
+.budget-warning-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  background: rgba(245, 158, 11, 0.14);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+  font-size: 0.8rem;
+}
+
+.budget-warning-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.budget-warning-header strong {
+  color: #92400E;
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+}
+
+[data-theme="dark"] .budget-warning-header strong {
+  color: #FCD34D;
+}
+
+.budget-warning-body {
+  padding: 0.65rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.budget-warning-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.budget-warning-row span:first-child {
+  opacity: 0.85;
+}
+
+.budget-warning-selisih {
+  margin-top: 0.25rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed rgba(239, 68, 68, 0.3);
+  font-weight: 600;
+}
+
+.budget-income {
+  color: #10B981;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.budget-expense {
+  color: #EF4444;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.budget-minus {
+  color: #EF4444;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.budget-warning-note {
+  padding: 0.55rem 1rem 0.75rem;
+  border-top: 1px solid rgba(245, 158, 11, 0.2);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.budget-adj-list {
+  margin: 0.35rem 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.budget-adj-list li {
+  font-family: 'Fira Code', monospace;
+  font-size: 0.68rem;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+[data-theme="dark"] .budget-warning-banner {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.07) 0%,
+    rgba(239, 68, 68, 0.05) 100%
+  );
+}
+
+[data-theme="dark"] .budget-warning-header {
+  background: rgba(245, 158, 11, 0.1);
+}
+

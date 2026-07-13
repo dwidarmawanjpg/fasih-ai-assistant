@@ -34,11 +34,18 @@ interface ParsedData {
   reason?: string;
 }
 
+interface BudgetWarning {
+  totalIncomePerMonth: number;
+  estimatedExpensePerMonth: number;
+  adjustments: string[];
+}
+
 interface ChatInteraction {
   id: string;
   rawText: string;
   parsedResults: ParsedData[];
   aiResponseText?: string;
+  budgetWarning?: BudgetWarning;
 }
 
 interface ChatSession {
@@ -48,7 +55,206 @@ interface ChatSession {
   interactions: ChatInteraction[];
 }
 
-const API_KEY = "sk-f7d03a3d9ee3bef1-1szt5n-dd7079c6";
+const API_KEY = import.meta.env.VITE_AI_API_KEY || '';
+
+// ─── Utility: Parse "Rp 1.500.000" → 1500000 ───────────────────────────────
+function parseRupiahToNumber(val: string | number): number {
+  if (typeof val === "number") return val;
+  const cleaned = String(val)
+    .replace(/Rp\s*/gi, "")
+    .replace(/\./g, "")
+    .replace(/,/g, ".")
+    .trim();
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+
+function formatRupiah(n: number): string {
+  return "Rp " + n.toLocaleString("id-ID");
+}
+
+// ─── Post-Processing: Pastikan total pengeluaran ≤ 90% pendapatan ─────────────
+//
+//  Alur:
+//  1. Hitung floor minimum = JML_ANGGOTA × Rp172.000/bln  &  × Rp375.000/thn
+//  2. Potong Non Makanan Tahunan dulu (turun ke floor jika perlu)
+//  3. Jika masih kurang, potong Non Makanan Bulanan (turun ke floor)
+//  4. Jika masih kurang, naikkan gaji KK maks +Rp3.800.000/bln
+//  5. Jika masih kurang (gaji terlalu kecil), biarkan + beri catatan
+//
+function enforceExpenseLimit(items: ParsedData[]): {
+  items: ParsedData[];
+  warning: BudgetWarning | undefined;
+} {
+  // ── 1. Hitung pendapatan bulanan ─────────────────────────────────────────────
+  let totalIncomePerMonth = 0;
+  let salaryItemField = "";
+  for (const item of items) {
+    const cat = item.category;
+    const f = item.field.toLowerCase();
+    if (cat === "Kepala Keluarga" || cat === "ART Lainnya") {
+      if (f.includes("gaji") || f.includes("pendapatan") || f.includes("penghasilan")) {
+        if (f.includes("setahun") || f.includes("tahunan")) {
+          totalIncomePerMonth += parseRupiahToNumber(item.value) / 12;
+        } else {
+          totalIncomePerMonth += parseRupiahToNumber(item.value);
+          if (!salaryItemField && cat === "Kepala Keluarga") salaryItemField = item.field;
+        }
+      }
+    }
+  }
+  if (totalIncomePerMonth <= 0) return { items, warning: undefined };
+
+  // ── 2. Hitung jumlah anggota keluarga ────────────────────────────────────────
+  const artSubCats = new Set<string>();
+  for (const item of items) {
+    if (item.category === "ART Lainnya" && item.subCategory) {
+      artSubCats.add(item.subCategory);
+    }
+  }
+  const hasKK = items.some((i) => i.category === "Kepala Keluarga");
+  const jmlAnggota = Math.max(1, (hasKK ? 1 : 0) + artSubCats.size);
+
+  // ── 3. Ambil nilai pengeluaran ───────────────────────────────────────────────
+  const getExp = (kw: string) =>
+    items.find(
+      (i) => i.category === "Pengeluaran" && i.field.toLowerCase().includes(kw.toLowerCase()),
+    );
+
+  const listrik    = parseRupiahToNumber(getExp("listrik")?.value ?? 0);
+  const internet   = parseRupiahToNumber(getExp("internet")?.value ?? 0);
+  const makanBiasa = parseRupiahToNumber(
+    items.find(
+      (i) => i.category === "Pengeluaran" &&
+        i.field.toLowerCase().replace(/\s+/g, " ").includes("makanan mingguan") &&
+        i.field.toLowerCase().includes("biasa")
+    )?.value ?? 0
+  ) * 4;
+  const nonMakanBul = parseRupiahToNumber(getExp("non makanan bulanan")?.value ?? 0);
+  const nonMakanTah = parseRupiahToNumber(getExp("non makanan tahunan")?.value ?? 0);
+  const nonMakanTahPBl = nonMakanTah / 12;
+
+  const fixedMonthly   = listrik + internet + makanBiasa;
+  const estimatedExpense = fixedMonthly + nonMakanBul + nonMakanTahPBl;
+  const target90       = totalIncomePerMonth * 0.9;
+
+  if (estimatedExpense <= target90) return { items, warning: undefined };
+
+  // ── 4. Floor minimum per anggota ────────────────────────────────────────────
+  const RATE_BUL     = 172_000; // Rp/orang/bulan
+  const RATE_TAH     = 375_000; // Rp/orang/tahun
+  // FASIH validation: pengeluaran_non_makan_bulanan >= listrik + internet
+  const floorBul     = Math.max(jmlAnggota * RATE_BUL, listrik + internet);
+  const floorTah     = jmlAnggota * RATE_TAH;
+  const floorTahPBl  = floorTah / 12;
+
+  // ── 5. Potong tahunan dulu ke floor, lalu bulanan ke floor ──────────────────
+  const kekurangan = estimatedExpense - target90;
+
+  const potongTahPBl = Math.max(0, Math.min(nonMakanTahPBl - floorTahPBl, kekurangan));
+  const newTahPBl    = nonMakanTahPBl - potongTahPBl;
+  const sisa1        = kekurangan - potongTahPBl;
+
+  const potongBul = Math.max(0, Math.min(nonMakanBul - floorBul, sisa1));
+  const newBul    = nonMakanBul - potongBul;
+  const sisa2     = sisa1 - potongBul;
+
+  // ── 6. Naikkan gaji jika masih kurang (maks +Rp3.800.000) ───────────────────
+  const MAX_BOOST   = 3_800_000;
+  const incomeBoost = sisa2 > 0 ? Math.min(MAX_BOOST, sisa2 / 0.9) : 0;
+  const effectiveIncome = totalIncomePerMonth + incomeBoost;
+
+  // Apakah setelah semua koreksi masih belum seimbang?
+  const sisaFinal = sisa2 - incomeBoost * 0.9;
+  const stillUnbalanced = sisaFinal > 1; // toleransi Rp 1 untuk float
+
+  const newNonMakanBul = Math.round(newBul);
+  const newNonMakanTah = Math.round(newTahPBl * 12);
+
+  // ── 7. Bangun catatan & update items ────────────────────────────────────────
+  const adjustments: string[] = [];
+
+  if (incomeBoost > 0) {
+    adjustments.push(
+      `Pendapatan KK dinaikkan +${formatRupiah(Math.round(incomeBoost))}/bln (maks. Rp 3.800.000) karena pemotongan pengeluaran tidak cukup`,
+    );
+  }
+
+  if (stillUnbalanced) {
+    adjustments.push(
+      `⚠️ Catatan: Pengeluaran masih melebihi 90% pendapatan sebesar ${formatRupiah(Math.round(sisaFinal))}/bln ` +
+      `(pendapatan terlalu kecil untuk diakali otomatis — perlu penanganan manual)`,
+    );
+  }
+
+  const updatedItems = items.map((item) => {
+    const cat = item.category;
+    const f   = item.field.toLowerCase();
+
+    // ✦ Naikkan gaji KK jika ada income boost
+    if (incomeBoost > 0 && item.field === salaryItemField && cat === "Kepala Keluarga") {
+      const oldVal = parseRupiahToNumber(item.value);
+      const newVal = Math.round(oldVal + incomeBoost);
+      adjustments.push(`"${item.field}": ${formatRupiah(oldVal)} → ${formatRupiah(newVal)}`);
+      return {
+        ...item,
+        value: formatRupiah(newVal),
+        status: "Asumsi AI" as const,
+        reason: `Dinaikkan +${formatRupiah(Math.round(incomeBoost))}/bln (maks Rp 3.800.000) karena setelah potong pengeluaran ke nilai minimum (min. bulanan ${formatRupiah(floorBul)}/bln, min. tahunan ${formatRupiah(floorTah)}/thn) masih kurang.`,
+      };
+    }
+
+    if (cat !== "Pengeluaran") return item;
+
+    // ✦ Non Makanan Tahunan — dipotong pertama
+    if (f.includes("non makanan tahunan") && newNonMakanTah !== nonMakanTah) {
+      adjustments.push(
+        `"${item.field}": ${formatRupiah(nonMakanTah)} → ${formatRupiah(newNonMakanTah)} ` +
+        `(min. ${formatRupiah(floorTah)}/thn = ${jmlAnggota} org × Rp${RATE_TAH.toLocaleString("id-ID")})`,
+      );
+      return {
+        ...item,
+        value: formatRupiah(newNonMakanTah),
+        status: "Asumsi AI" as const,
+        reason:
+          `Disesuaikan: pengeluaran melebihi 90% pendapatan. Tahunan dipotong terlebih dahulu. ` +
+          `Minimum ${jmlAnggota} orang × Rp${RATE_TAH.toLocaleString("id-ID")}/thn = ${formatRupiah(floorTah)}.`,
+      };
+    }
+
+    // ✦ Non Makanan Bulanan — dipotong setelah tahunan
+    if (f.includes("non makanan bulanan") && newNonMakanBul !== nonMakanBul) {
+      const floorBulDesc = floorBul > jmlAnggota * RATE_BUL
+        ? `${formatRupiah(listrik + internet)} (listrik + internet)`
+        : `${jmlAnggota} org × Rp${RATE_BUL.toLocaleString("id-ID")} = ${formatRupiah(jmlAnggota * RATE_BUL)}`;
+      adjustments.push(
+        `"${item.field}": ${formatRupiah(nonMakanBul)} → ${formatRupiah(newNonMakanBul)} ` +
+        `(min. ${formatRupiah(floorBul)}/bln = ${floorBulDesc})`,
+      );
+      return {
+        ...item,
+        value: formatRupiah(newNonMakanBul),
+        status: "Asumsi AI" as const,
+        reason:
+          `Disesuaikan: setelah tahunan dipotong masih melebihi 90% pendapatan. ` +
+          `Bulanan dipotong. Minimum = ${formatRupiah(floorBul)}/bln (${floorBulDesc}).`,
+      };
+    }
+
+    return item;
+  });
+
+  const correctedExpensePerMonth = fixedMonthly + newBul + newTahPBl;
+
+  return {
+    items: updatedItems,
+    warning: {
+      totalIncomePerMonth: effectiveIncome,
+      estimatedExpensePerMonth: correctedExpensePerMonth,
+      adjustments,
+    },
+  };
+}
 
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
@@ -329,7 +535,7 @@ ATURAN UTAMA:
    B. Berdasarkan Anggota Keluarga
       IF JML_ANGGOTA > 0,
       MAKA:
-      - Biaya_Grooming (Pangkas rambut/kosmetik) = JML_ANGGOTA * Rp 25.0000
+      - Biaya_Grooming (Pangkas rambut/kosmetik) = JML_ANGGOTA * Rp 25.000
       - Biaya_Hari_Raya  = JML_ANGGOTA * Rp 25.000
       - Biaya_Pendidikan_Berkala (Alat sekolah/semesteran) = JML_ANGGOTA (jika anggota masih pendidikan) * Rp 250.000
       - Biaya_Kesehatan_Tahunan = JML_ANGGOTA * Rp 100.000
@@ -357,6 +563,40 @@ ATURAN UTAMA:
    6. "Non Makanan Tahunan Total": Total dari seluruh hitungan "3. LOGIKA PERHITUNGAN TAHUNAN" murni (Biaya Tetap, Grooming, Hari Raya, Pendidikan, Kesehatan Tahunan, Perawatan Kendaraan).
 
    PENTING: Pengeluaran tahunan HANYA berisi hasil perhitungan dari Logika Tahunan saja. JANGAN menambahkan/mengalikan pengeluaran bulanan ke dalamnya! Masukkan ke-6 hasil akhir ini saja ke dalam array JSON dengan "category": "Pengeluaran".
+
+   ATURAN BATAS PENGELUARAN — LANGKAH KALKULASI WAJIB (LAKUKAN SEBELUM OUTPUT):
+   LANGKAH 1 — Hitung TOTAL_PENDAPATAN_BULANAN:
+     Jumlahkan semua gaji/penghasilan bulanan dari Kepala Keluarga + seluruh ART Lainnya.
+     Contoh: KK gaji Rp 1.200.000 + Istri Rp 500.000 → TOTAL = Rp 1.700.000
+
+   LANGKAH 2 — Hitung ESTIMASI_PENGELUARAN_BULANAN:
+     = Biaya_Listrik + Biaya_Internet + (Biaya_Makanan_Mingguan_Biasa × 4) + Non_Makanan_Bulanan_Total + (Non_Makanan_Tahunan_Total ÷ 12)
+     Contoh: 100.000 + 100.000 + (140.000×4) + 344.000 + (600.000÷12) = Rp 1.154.000
+
+   LANGKAH 3 — Bandingkan dan Seimbangkan:
+     Jika ESTIMASI_PENGELUARAN_BULANAN > TOTAL_PENDAPATAN_BULANAN × 90%:
+     → TARGET = TOTAL_PENDAPATAN_BULANAN × 90%
+     → KEKURANGAN = ESTIMASI - TARGET
+     → URUTAN KOREKSI (MAKANAN & LISTRIK & INTERNET TIDAK BOLEH DIUBAH):
+        LANGKAH A — Potong "Non Makanan Tahunan Total" terlebih dahulu:
+           • Floor minimum = JML_ANGGOTA × Rp 375.000/tahun (TIDAK boleh di bawah ini).
+           • Potong semaksimal mungkin hingga floor minimum tersebut.
+           • Jika kekurangan sudah tertutup → STOP, tidak perlu lanjut.
+        LANGKAH B — Jika masih kurang, potong "Non Makanan Bulanan Total":
+           • Floor minimum = max(JML_ANGGOTA × Rp 172.000/bulan, Biaya_Listrik + Biaya_Internet).
+           • Potong semaksimal mungkin hingga floor minimum tersebut.
+           • Jika kekurangan sudah tertutup → STOP.
+        LANGKAH C — Jika masih kurang setelah potong maksimal:
+           • Naikkan pendapatan (gaji Kepala Keluarga) maksimal +Rp 3.800.000/bln.
+           • Catat di field "reason": "Pendapatan dinaikkan karena pemotongan pengeluaran tidak mencukupi."
+        PENTING:
+           • "Non Makanan Tahunan" dan "Non Makanan Bulanan" TIDAK BOLEH menjadi Rp 0.
+           • Nilai minimal masing-masing = floor minimum seperti di atas.
+           • ATURAN FLOOR TAMBAHAN: Nilai "Non Makanan Bulanan" setelah dipotong TIDAK BOLEH lebih kecil dari (Biaya_Listrik + Biaya_Internet).
+           • Tambahkan field "reason" pada setiap item yang diubah.
+
+   PENTING: Jika TOTAL_PENDAPATAN_BULANAN tidak diketahui dari catatan (tidak disebutkan gaji sama sekali), SKIP langkah ini dan gunakan nilai default rumus biasa.
+
 
 Keluarkan HANYA array JSON tanpa format markdown:
 [
@@ -492,11 +732,16 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join("\n")}
         finalAiResponseText = text;
       }
 
+      // ── Post-processing: enforce expense ≤ income ──────────────────────────
+      const { items: correctedJson, warning: budgetWarning } =
+        enforceExpenseLimit(parsedJson);
+
       const newInteraction: ChatInteraction = {
         id: Date.now().toString(),
         rawText: currentInput,
-        parsedResults: parsedJson,
+        parsedResults: correctedJson,
         aiResponseText: finalAiResponseText,
+        budgetWarning,
       };
 
       if (targetSessionId) {
@@ -720,6 +965,62 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join("\n")}
                     </div>
 
                     <div className="ai-response-container">
+                      {/* ── Budget Warning Banner ── */}
+                      {ix.budgetWarning && (
+                        <div className="budget-warning-banner" role="alert">
+                          <div className="budget-warning-header">
+                            <span
+                              className="budget-warning-icon"
+                              aria-hidden="true"
+                            >
+                              ⚠️
+                            </span>
+                            <strong>
+                              Pengeluaran Melebihi Pendapatan — Otomatis
+                              Dikoreksi
+                            </strong>
+                          </div>
+                          <div className="budget-warning-body">
+                            <div className="budget-warning-row">
+                              <span>Total Pendapatan Bulanan ART:</span>
+                              <span className="budget-income">
+                                {formatRupiah(
+                                  ix.budgetWarning.totalIncomePerMonth,
+                                )}
+                              </span>
+                            </div>
+                            <div className="budget-warning-row">
+                              <span>
+                                Estimasi Pengeluaran (sebelum koreksi):
+                              </span>
+                              <span className="budget-expense">
+                                {formatRupiah(
+                                  ix.budgetWarning.estimatedExpensePerMonth,
+                                )}
+                              </span>
+                            </div>
+                            <div className="budget-warning-row budget-warning-selisih">
+                              <span>Selisih Minus:</span>
+                              <span className="budget-minus">
+                                −
+                                {formatRupiah(
+                                  ix.budgetWarning.estimatedExpensePerMonth -
+                                    ix.budgetWarning.totalIncomePerMonth,
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="budget-warning-note">
+                            Nilai berikut telah disesuaikan secara otomatis agar
+                            tidak melebihi 90% pendapatan:
+                            <ul className="budget-adj-list">
+                              {ix.budgetWarning.adjustments.map((adj, i) => (
+                                <li key={i}>{adj}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      )}
                       <div className="ai-response-header">
                         <div className="bubble-label">Hasil Ekstraksi</div>
                         <button
