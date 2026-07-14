@@ -1057,54 +1057,76 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join("\n")}
                                   ),
                                 );
 
-                                return subCats.map((sub, subIdx) => {
+                                const subCatGroups = subCats.map((sub, subIdx) => {
                                   const subItems = items.filter(
                                     (i) => (i.subCategory || "") === sub,
                                   );
-                                  return (
-                                    <div
-                                      key={subIdx}
-                                      className="subcategory-group"
-                                    >
-                                      {sub && (
-                                        <h4 className="subcategory-title">
-                                          {sub}
-                                        </h4>
-                                      )}
-                                      <div className="horizontal-grid">
-                                        {subItems.map((res, i) => (
-                                          <div key={i} className="data-card">
-                                            <div className="data-card-header">
-                                              <span className="data-field">
-                                                {res.field}
-                                              </span>
-                                              <span
-                                                className={`status-dot ${res.status === "Asumsi AI" ? "dot-asumsi" : "dot-real"}`}
-                                                title={res.status}
-                                              ></span>
-                                            </div>
-                                            <div
-                                              className={`data-value ${isCurrency(res.field) || String(res.value).includes("Rp") ? "is-currency" : ""}`}
-                                            >
-                                              {formatValue(res)}
-                                            </div>
-                                            {res.reason && (
-                                              <div className="data-reason">
-                                                <span className="reason-icon">
-                                                  <Lightbulb
-                                                    size={11}
-                                                    weight="fill"
-                                                  />
-                                                </span>{" "}
-                                                {res.reason}
-                                              </div>
-                                            )}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
+                                  return { sub, subIdx, subItems };
                                 });
+
+                                const allReasons = subCatGroups.flatMap(
+                                  ({ subItems }) =>
+                                    subItems
+                                      .filter((res) => res.reason)
+                                      .map((res) => ({
+                                        field: res.field,
+                                        reason: res.reason as string,
+                                      })),
+                                );
+
+                                return (
+                                  <>
+                                    {subCatGroups.map(({ sub, subIdx, subItems }) => (
+                                      <div
+                                        key={subIdx}
+                                        className="subcategory-group"
+                                      >
+                                        {sub && (
+                                          <h4 className="subcategory-title">
+                                            {sub}
+                                          </h4>
+                                        )}
+                                        <div className="horizontal-grid">
+                                          {subItems.map((res, i) => (
+                                            <div key={i} className="data-card">
+                                              <div className="data-card-header">
+                                                <span className="data-field">
+                                                  {res.field}
+                                                </span>
+                                                <span
+                                                  className={`status-dot ${res.status === "Asumsi AI" ? "dot-asumsi" : "dot-real"}`}
+                                                  title={res.status}
+                                                ></span>
+                                              </div>
+                                              <div
+                                                className={`data-value ${isCurrency(res.field) || String(res.value).includes("Rp") ? "is-currency" : ""}`}
+                                              >
+                                                {formatValue(res)}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    {allReasons.length > 0 && (
+                                      <div className="category-notes">
+                                        <div className="category-notes-label">
+                                          <Lightbulb size={11} weight="fill" />
+                                          Catatan Penyesuaian
+                                        </div>
+                                        <ul className="category-notes-list">
+                                          {allReasons.map((r, i) => (
+                                            <li key={i}>
+                                              <span className="note-field">{r.field}:</span>{" "}
+                                              {r.reason}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </>
+                                );
                               })()}
                             </div>
                           );

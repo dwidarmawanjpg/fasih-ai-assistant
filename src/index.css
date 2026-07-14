@@ -525,6 +525,11 @@ body {
   gap: 2.5rem;
 }
 
+.interaction-wrapper + .interaction-wrapper {
+  border-top: 1px solid var(--border);
+  padding-top: 2.5rem;
+}
+
 /* ─── USER BUBBLE ────────────────────────────────────────── */
 .user-message-bubble {
   align-self: flex-end;
@@ -533,8 +538,17 @@ body {
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   border-left: 3px solid var(--primary);
-  max-width: min(82%, 640px);
+  max-width: min(90%, 800px);
   box-shadow: var(--shadow-sm);
+}
+
+.bubble-text {
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: var(--text);
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .bubble-label {
@@ -544,13 +558,6 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.09em;
   font-weight: 600;
-}
-
-.bubble-text {
-  font-size: 0.9rem;
-  white-space: pre-wrap;
-  line-height: 1.6;
-  color: var(--text);
 }
 
 /* ─── AI RESPONSE ────────────────────────────────────────── */
@@ -633,6 +640,12 @@ body {
   gap: 0.625rem;
 }
 
+@media (max-width: 480px) {
+  .horizontal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ─── DATA CARD ──────────────────────────────────────────── */
 .data-card {
   background: var(--bg-main);
@@ -684,18 +697,54 @@ body {
   letter-spacing: -0.02em;
 }
 
-.data-reason {
-  margin-top: 0.5rem;
-  font-size: 0.6875rem;
-  color: var(--warning);
+/* ─── CATEGORY NOTES (Catatan Penyesuaian) ─────────── */
+.category-notes {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
   background: var(--warning-subtle);
-  padding: 0.375rem 0.5rem;
-  border-radius: var(--radius-sm);
-  border-left: 2px solid var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.category-notes-label {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.375rem;
-  line-height: 1.45;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--warning);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 0.5rem;
+}
+
+.category-notes-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.category-notes-list li {
+  color: var(--text);
+  padding-left: 0.875rem;
+  position: relative;
+}
+
+.category-notes-list li::before {
+  content: '–';
+  position: absolute;
+  left: 0;
+  color: var(--warning);
+}
+
+.note-field {
+  font-weight: 600;
+  color: var(--text);
 }
 
 .reason-icon {
