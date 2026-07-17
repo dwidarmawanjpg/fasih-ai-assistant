@@ -619,7 +619,7 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join("\n")}
 `;
 
       const response = await fetch(
-        "https://dwidarmawanjpg-9router.hf.space/v1/chat/completions",
+        "https://openrouter.ai/api/v1/chat/completions",
         {
           method: "POST",
           headers: {
@@ -627,7 +627,7 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join("\n")}
             Authorization: `Bearer ${API_KEY}`,
           },
           body: JSON.stringify({
-            model: "combotry",
+            model: "tencent/hy3:free",
             messages: (function () {
               const msgs = [{ role: "system", content: systemPrompt }];
               const targetSession = sessions.find(
