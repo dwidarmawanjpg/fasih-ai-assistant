@@ -627,7 +627,7 @@ ${aiRules.map((r, i) => `${i + 1}. ${r.content}`).join("\n")}
             Authorization: `Bearer ${API_KEY}`,
           },
           body: JSON.stringify({
-            model: "tencent/hy3:free",
+            model: "poolside/laguna-m.1:free",
             messages: (function () {
               const msgs = [{ role: "system", content: systemPrompt }];
               const targetSession = sessions.find(
